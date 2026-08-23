@@ -12,9 +12,9 @@ Two standalone HTML files — no build step, no dependencies.
 
 Published with GitHub Pages:
 
-- Landing: `https://<username>.github.io/nglg-recognition/`
-- Builder: `https://<username>.github.io/nglg-recognition/builder.html`
-- Preview: `https://<username>.github.io/nglg-recognition/regularity-2026august.html`
+- Landing: `https://dskiad.github.io/nglg-recognition/`
+- Builder: `https://dskiad.github.io/nglg-recognition/builder.html`
+- Preview: `https://dskiad.github.io/nglg-recognition/regularity-2026august.html`
 
 ## Running locally
 
