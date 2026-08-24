@@ -35,8 +35,31 @@
   .btn.danger:hover{ background:#932839; }
   .btn.pdf{ background:#2E7D5B; color:#fff; }
   .btn.pdf:hover{ background:#379067; }
+  .btn.gh{ background:#1F6FEB; color:#fff; }
+  .btn.gh:hover{ background:#3b82f6; }
+  .btn.gh[disabled]{ opacity:.55; cursor:default; }
   .btn.small{ padding:4px 9px; font-size:11px; }
   .spacer{flex:1;}
+  .gh-backdrop{ position:fixed; inset:0; background:rgba(15,21,48,.62); display:flex;
+    align-items:center; justify-content:center; z-index:60; padding:20px; }
+  .gh-backdrop[hidden]{ display:none; }
+  .gh-dialog{ background:var(--paper); color:var(--ink); border-radius:10px; padding:22px 24px;
+    width:min(560px,100%); max-height:90vh; overflow:auto; box-shadow:0 18px 50px rgba(0,0,0,.4); }
+  .gh-dialog h2{ font-family:var(--serif); font-size:19px; color:var(--navy); margin:0 0 4px; }
+  .gh-target{ font-size:12.5px; color:var(--muted); margin:0 0 16px; line-height:1.5; }
+  .gh-target b{ color:var(--navy); }
+  .gh-label{ display:block; font-size:11px; font-weight:700; letter-spacing:.07em;
+    text-transform:uppercase; color:var(--navy); margin:12px 0 5px; }
+  .gh-dialog input[type=text], .gh-dialog input[type=password]{
+    width:100%; padding:9px 10px; font-size:13px; border:1px solid var(--line);
+    border-radius:5px; background:#fff; color:var(--ink); font-family:inherit; }
+  .gh-help{ font-size:11.5px; color:var(--muted); line-height:1.55; margin:7px 0 0; }
+  .gh-help a{ color:#1155CC; }
+  .gh-status{ font-size:12.5px; margin:14px 0 0; min-height:18px; }
+  .gh-status.err{ color:#932839; }
+  .gh-status.ok{ color:#2E7D5B; font-weight:700; }
+  .gh-status.busy{ color:var(--muted); }
+  .gh-actions{ display:flex; gap:9px; justify-content:flex-end; margin-top:18px; }
   .status{font-size:11px; color:#B7BAD4; white-space:nowrap;}
   .toggle-wrap{ display:flex; align-items:center; gap:6px; font-size:11.5px; color:#D8DAEA; background:#1B2456; border:1px solid #33407A; border-radius:5px; padding:6px 10px; }
   .toggle-wrap input{ accent-color:var(--gold); }
@@ -120,6 +143,7 @@
     <button class="btn mobile-toggle" id="btnToggle">👁 Preview</button>
     <button class="btn pdf" id="btnPdf">🖨 Save as PDF</button>
     <button class="btn" id="btnDownload">⬇ Download HTML</button>
+    <button class="btn gh" id="btnPublish" title="Commit and push this version straight to GitHub">⬆ Publish to GitHub</button>
     <span class="status" id="statusMsg"></span>
   </div>
 
@@ -144,6 +168,43 @@
     </div>
   </div>
 </div>
+<div class="gh-backdrop" id="ghModal" hidden>
+  <div class="gh-dialog" role="dialog" aria-modal="true" aria-labelledby="ghTitle">
+    <h2 id="ghTitle">Publish to GitHub</h2>
+    <p class="gh-target">
+      <b id="ghRepoLabel"></b><br>
+      <span id="ghPathLabel"></span>
+    </p>
+
+    <div id="ghTokenBlock">
+      <label class="gh-label" for="ghToken">Personal access token</label>
+      <input type="password" id="ghToken" autocomplete="off" spellcheck="false"
+             placeholder="github_pat_… or ghp_…">
+      <p class="gh-help">
+        Create a <b>fine-grained</b> token with access to <b>only this repository</b> and
+        <b>Contents: Read and write</b> —
+        <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">github.com/settings/personal-access-tokens/new</a>.
+        It is kept in this browser only and is never written into the repository.
+      </p>
+    </div>
+
+    <p id="ghTokenSaved" class="gh-help" hidden>
+      Using the token saved in this browser.
+      <a href="#" id="ghChangeToken">Change</a> · <a href="#" id="ghForgetToken">Forget it</a>
+    </p>
+
+    <label class="gh-label" for="ghMessage">Commit message</label>
+    <input type="text" id="ghMessage" autocomplete="off">
+
+    <p class="gh-status" id="ghStatus"></p>
+
+    <div class="gh-actions">
+      <button class="btn ghost" id="ghCancel">Cancel</button>
+      <button class="btn gh" id="ghGo">Publish</button>
+    </div>
+  </div>
+</div>
+
 <iframe id="pdfFrame" class="pdf-frame" title="Print"></iframe>
 
 <script>
@@ -2765,6 +2826,160 @@ document.getElementById("btnNew").addEventListener("click", resetToDefault);
 document.getElementById("btnDelete").addEventListener("click", deleteCurrent);
 document.getElementById("btnUpload").addEventListener("click", ()=> document.getElementById("uploadInput").click());
 document.getElementById("uploadInput").addEventListener("change", onUploadFileChosen);
+
+/* ================= PUBLISH TO GITHUB =================
+   Commits the current version straight to the repository, so there is no
+   download-then-upload step. The token is held in this browser's storage
+   only (same IndexedDB the saved versions use) and is never written into
+   the repo or into an exported file. */
+const GH_OWNER = "dskiad";
+const GH_REPO  = "nglg-recognition";
+const GH_BRANCH = "main";
+const GH_PATH  = "regularity-2026august.html";
+const GH_TOKEN_KEY = "nglg-gh-token";
+const GH_SITE  = "https://" + GH_OWNER + ".github.io/" + GH_REPO + "/" + GH_PATH;
+
+function ghSetStatus(msg, kind){
+  const el = document.getElementById("ghStatus");
+  el.textContent = msg || "";
+  el.className = "gh-status" + (kind ? " " + kind : "");
+}
+
+async function ghGetToken(){
+  try{
+    const res = await window.storage.get(GH_TOKEN_KEY);
+    return res ? String(res.value || "") : "";
+  }catch(e){ return ""; }
+}
+
+// Base64 for a multi-megabyte UTF-8 string. btoa cannot take the whole thing
+// at once (and apply() blows the argument limit), so encode then chunk.
+function utf8ToBase64(str){
+  const bytes = new TextEncoder().encode(str);
+  const CHUNK = 0x8000;
+  let bin = "";
+  for(let i = 0; i < bytes.length; i += CHUNK){
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(bin);
+}
+
+async function ghFetch(path, token, options){
+  const opts = options || {};
+  const res = await fetch("https://api.github.com/repos/" + GH_OWNER + "/" + GH_REPO + path, {
+    method: opts.method || "GET",
+    headers: {
+      "Accept": "application/vnd.github+json",
+      "Authorization": "Bearer " + token,
+      "X-GitHub-Api-Version": "2022-11-28",
+      "Content-Type": "application/json"
+    },
+    body: opts.body ? JSON.stringify(opts.body) : undefined
+  });
+  let json = null;
+  try{ json = await res.json(); }catch(e){}
+  return { ok: res.ok, status: res.status, json: json };
+}
+
+function ghExplain(status, json){
+  const detail = (json && json.message) ? json.message : ("HTTP " + status);
+  if(status === 401) return "Token rejected (401). It may be wrong, expired, or revoked.";
+  if(status === 403) return "Forbidden (403). The token needs Contents: Read and write on " + GH_OWNER + "/" + GH_REPO + ".";
+  if(status === 404) return "Not found (404). Usually the token has no access to this repository.";
+  if(status === 409) return "Conflict (409). The file changed on GitHub since this page loaded — reopen and try again.";
+  if(status === 422) return "Rejected (422): " + detail;
+  return "GitHub said: " + detail;
+}
+
+async function ghPublish(){
+  const token = (document.getElementById("ghToken").value || "").trim() || await ghGetToken();
+  if(!token){ ghSetStatus("Enter a token first.", "err"); return; }
+
+  const message = (document.getElementById("ghMessage").value || "").trim() || "Update edition";
+  const goBtn = document.getElementById("ghGo");
+  goBtn.disabled = true;
+
+  try{
+    ghSetStatus("Building the page…", "busy");
+    const html = renderSiteHTML(state, false, currentDocTitle());
+    const content = utf8ToBase64(html);
+
+    ghSetStatus("Checking the current file on GitHub…", "busy");
+    const head = await ghFetch("/contents/" + encodeURIComponent(GH_PATH) + "?ref=" + GH_BRANCH, token);
+    if(!head.ok && head.status !== 404){
+      ghSetStatus(ghExplain(head.status, head.json), "err"); goBtn.disabled = false; return;
+    }
+    const sha = head.ok && head.json ? head.json.sha : undefined;
+
+    const kb = Math.round(html.length / 1024);
+    ghSetStatus("Uploading " + kb + " KB…", "busy");
+    const put = await ghFetch("/contents/" + encodeURIComponent(GH_PATH), token, {
+      method: "PUT",
+      body: { message: message, content: content, branch: GH_BRANCH, sha: sha }
+    });
+    if(!put.ok){
+      ghSetStatus(ghExplain(put.status, put.json), "err"); goBtn.disabled = false; return;
+    }
+
+    // Only remember the token once it has actually worked.
+    try{ await window.storage.set(GH_TOKEN_KEY, token); }catch(e){}
+
+    ghSetStatus("Published. GitHub Pages rebuilds in about a minute.", "ok");
+    setStatus("Published to GitHub.");
+    goBtn.disabled = false;
+    document.getElementById("ghToken").value = "";
+    await ghRefreshTokenUI();
+  }catch(err){
+    ghSetStatus("Could not reach GitHub: " + (err && err.message ? err.message : err), "err");
+    goBtn.disabled = false;
+  }
+}
+
+async function ghRefreshTokenUI(){
+  const saved = await ghGetToken();
+  document.getElementById("ghTokenBlock").hidden = !!saved;
+  document.getElementById("ghTokenSaved").hidden = !saved;
+}
+
+async function openGhModal(){
+  document.getElementById("ghRepoLabel").textContent = GH_OWNER + "/" + GH_REPO + " · branch " + GH_BRANCH;
+  document.getElementById("ghPathLabel").textContent = "Overwrites " + GH_PATH + " → " + GH_SITE;
+  const name = currentDocTitle() || "edition";
+  document.getElementById("ghMessage").value = "Publish " + name;
+  ghSetStatus("");
+  await ghRefreshTokenUI();
+  document.getElementById("ghModal").hidden = false;
+  const saved = await ghGetToken();
+  (saved ? document.getElementById("ghMessage") : document.getElementById("ghToken")).focus();
+}
+
+function closeGhModal(){
+  document.getElementById("ghModal").hidden = true;
+  document.getElementById("ghToken").value = "";
+}
+
+document.getElementById("btnPublish").addEventListener("click", openGhModal);
+document.getElementById("ghCancel").addEventListener("click", closeGhModal);
+document.getElementById("ghGo").addEventListener("click", ghPublish);
+document.getElementById("ghModal").addEventListener("click", (e)=>{
+  if(e.target.id === "ghModal") closeGhModal();
+});
+document.addEventListener("keydown", (e)=>{
+  if(e.key === "Escape" && !document.getElementById("ghModal").hidden) closeGhModal();
+});
+document.getElementById("ghChangeToken").addEventListener("click", async (e)=>{
+  e.preventDefault();
+  document.getElementById("ghTokenBlock").hidden = false;
+  document.getElementById("ghTokenSaved").hidden = true;
+  document.getElementById("ghToken").focus();
+});
+document.getElementById("ghForgetToken").addEventListener("click", async (e)=>{
+  e.preventDefault();
+  try{ await window.storage.delete(GH_TOKEN_KEY); }catch(err){}
+  ghSetStatus("Token removed from this browser.", "ok");
+  await ghRefreshTokenUI();
+});
+
 document.getElementById("btnDownload").addEventListener("click", downloadHtml);
 document.getElementById("btnPdf").addEventListener("click", saveAsPdf);
 document.getElementById("versionSelect").addEventListener("change", (e)=> loadVersionById(e.target.value));

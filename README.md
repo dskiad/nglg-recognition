@@ -62,3 +62,19 @@ https://example.org/report
 
 Link lines are not click-to-editable in the preview — edit them in the field on
 the left, so the URL is never overwritten by the visible text.
+
+## Publishing straight from the builder
+
+The builder has an **⬆ Publish to GitHub** button that commits the current
+version directly to `regularity-2026august.html` — no download/upload step.
+
+It needs a **fine-grained personal access token**, created once at
+[github.com/settings/personal-access-tokens/new](https://github.com/settings/personal-access-tokens/new):
+
+- **Repository access:** Only select repositories → `nglg-recognition`
+- **Permissions:** Repository permissions → **Contents: Read and write**
+
+Paste it into the dialog the first time. It is stored in that browser's
+IndexedDB only — never in the repo, never in an exported file, never in a
+saved version. Use **Forget it** in the dialog to remove it, and revoke the
+token on GitHub if a browser is lost.
