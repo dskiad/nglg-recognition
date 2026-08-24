@@ -60,6 +60,15 @@
   .gh-status.ok{ color:#2E7D5B; font-weight:700; }
   .gh-status.busy{ color:var(--muted); }
   .gh-actions{ display:flex; gap:9px; justify-content:flex-end; margin-top:18px; }
+  .gh-compare{ font-size:12.5px; color:var(--muted); margin:14px 0 0; }
+  .gh-compare b{ color:var(--navy); }
+  .gh-compare.warnish b{ color:#932839; }
+  .gh-warn{ margin-top:10px; padding:10px 12px; border:1px solid #E0B4BD;
+    background:#FCF3F5; border-radius:6px; }
+  .gh-warn[hidden]{ display:none; }
+  .gh-warn label{ display:flex; gap:8px; align-items:flex-start; font-size:12.5px;
+    color:#7a2332; line-height:1.5; cursor:pointer; }
+  .gh-warn input{ margin-top:2px; flex:none; }
   .status{font-size:11px; color:#B7BAD4; white-space:nowrap;}
   .toggle-wrap{ display:flex; align-items:center; gap:6px; font-size:11.5px; color:#D8DAEA; background:#1B2456; border:1px solid #33407A; border-radius:5px; padding:6px 10px; }
   .toggle-wrap input{ accent-color:var(--gold); }
@@ -192,6 +201,12 @@
       Using the token saved in this browser.
       <a href="#" id="ghChangeToken">Change</a> · <a href="#" id="ghForgetToken">Forget it</a>
     </p>
+
+    <p class="gh-compare" id="ghCompare"></p>
+    <div class="gh-warn" id="ghWarn" hidden>
+      <label><input type="checkbox" id="ghAck">
+        <span>Publish anyway — I understand this removes <b id="ghWarnN"></b> from the live page.</span></label>
+    </div>
 
     <label class="gh-label" for="ghMessage">Commit message</label>
     <input type="text" id="ghMessage" autocomplete="off">
@@ -2907,6 +2922,13 @@ async function ghPublish(){
   const token = (document.getElementById("ghToken").value || "").trim() || await ghGetToken();
   if(!token){ ghSetStatus("Enter a token first.", "err"); return; }
 
+  const warnEl = document.getElementById("ghWarn");
+  const ackEl  = document.getElementById("ghAck");
+  if(!warnEl.hidden && !ackEl.checked){
+    ghSetStatus("This version has fewer images than the live page — tick the box to confirm.", "err");
+    return;
+  }
+
   const message = (document.getElementById("ghMessage").value || "").trim() || "Update edition";
   const goBtn = document.getElementById("ghGo");
   goBtn.disabled = true;
@@ -2967,6 +2989,47 @@ async function ghRefreshTokenUI(){
   document.getElementById("ghTokenSaved").hidden = !saved;
 }
 
+function ghCountImages(html){ return (html.match(/src="data:image\//g) || []).length; }
+
+// Compares the images in the version about to be published against the page
+// that is currently live, and makes the user acknowledge a reduction. The
+// Upload Version bug used to strip images silently; this is the backstop.
+async function ghCheckImages(){
+  const compare = document.getElementById("ghCompare");
+  const warn    = document.getElementById("ghWarn");
+  const ack     = document.getElementById("ghAck");
+  const goBtn   = document.getElementById("ghGo");
+
+  ack.checked = false;
+  warn.hidden = true;
+  goBtn.disabled = false;
+  compare.className = "gh-compare";
+
+  const mine = ghCountImages(renderSiteHTML(state, false, currentDocTitle()));
+  compare.innerHTML = "This version: <b>" + mine + "</b> images · checking the live page…";
+
+  let live = null;
+  try{
+    const res = await fetch(GH_PATH + "?_=" + Date.now(), { cache: "no-store" });
+    if(res.ok) live = ghCountImages(await res.text());
+  }catch(e){ /* offline or cross-origin — fall through */ }
+
+  if(live === null){
+    compare.innerHTML = "This version: <b>" + mine + "</b> images · could not read the live page to compare.";
+    return;
+  }
+
+  compare.innerHTML = "This version: <b>" + mine + "</b> images · live page: <b>" + live + "</b>";
+  if(mine < live){
+    const missing = live - mine;
+    compare.className = "gh-compare warnish";
+    document.getElementById("ghWarnN").textContent = missing + (missing === 1 ? " image" : " images");
+    warn.hidden = false;
+    goBtn.disabled = true;
+    ack.onchange = () => { goBtn.disabled = !ack.checked; };
+  }
+}
+
 async function openGhModal(){
   document.getElementById("ghRepoLabel").textContent = GH_OWNER + "/" + GH_REPO + " · branch " + GH_BRANCH;
   document.getElementById("ghPathLabel").textContent = "Overwrites " + GH_PATH + " → " + GH_SITE;
@@ -2975,6 +3038,7 @@ async function openGhModal(){
   ghSetStatus("");
   await ghRefreshTokenUI();
   document.getElementById("ghModal").hidden = false;
+  ghCheckImages();   // async; fills in once the live page has been read
   const saved = await ghGetToken();
   (saved ? document.getElementById("ghMessage") : document.getElementById("ghToken")).focus();
 }
