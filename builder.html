@@ -1340,7 +1340,16 @@ function renderSiteHTML(s, editable, titleOverride, showPageBreaks){
   const barsHtml = barItems.map((b,i)=>`
     <div class="bar-row"><div class="lbl"${EA('networkBars:'+i+':0')}>${richEsc(b.label)}</div><div class="bar-track"><div class="bar-fill" style="width:${Math.round(b.value/maxVal*100)}%"></div></div><div class="val"${EA('networkBars:'+i+':1')}>${richEsc(String(b.value))}</div></div>`).join("");
 
-  const appendantHtml = lines(s.structureAppendantList).map((x,i)=>`<li${EA('structureAppendantList:'+i)}>${richEsc(x)}</li>`).join("");
+  // A line that begins with http(s):// becomes a clickable link (blue + underlined).
+  // Uses esc() rather than richEsc() so * and ** inside a URL are not eaten as markup.
+  function appendantLineHtml(x){
+    const val = String(x).trim();
+    if(/^https?:\/\//i.test(val)){
+      return `<a href="${esc(val)}" target="_blank" rel="noopener">${esc(val)}</a>`;
+    }
+    return richEsc(x);
+  }
+  const appendantHtml = lines(s.structureAppendantList).map((x,i)=>`<li${EA('structureAppendantList:'+i)}>${appendantLineHtml(x)}</li>`).join("");
 
   const pillarsHtml = pairs(s.pillarsItems).map(([t,txt],i)=>`
     <div class="pillar reveal"><div class="num">${i+1}</div><h4${EA('pillarsItems:'+i+':0')}>${richEsc(t)}</h4><p${EA('pillarsItems:'+i+':1',{block:1})}>${richEsc(txt)}</p></div>`).join("");
@@ -1749,6 +1758,9 @@ function renderSiteHTML(s, editable, titleOverride, showPageBreaks){
   .appendant-list{list-style:none; margin:14px 0 0; padding:0;}
   .appendant-list li{font-size:13.5px; color:var(--ink); padding:8px 0 8px 18px; position:relative; border-bottom:1px dashed #DDD6BC;}
   .appendant-list li::before{content:"—"; position:absolute; left:0; color:var(--gold);}
+  .appendant-list li a{ color:#1155CC; text-decoration:underline; text-underline-offset:2px;
+    overflow-wrap:anywhere; }
+  .appendant-list li a:hover{ color:#0B3D91; }
   .structure-plaque{background:linear-gradient(160deg, #EAF4FC 0%, #FFFFFF 100%); color:#1a2340; padding:32px 28px; text-align:center; border:1px solid #D8EAF7;}
   .structure-plaque .big{font-family:var(--serif); font-size:40px; color:var(--navy);}
   .structure-plaque .lbl{font-size:12.5px; text-transform:uppercase; letter-spacing:.05em; margin-top:6px; color:#2a3a55;}
