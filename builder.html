@@ -437,7 +437,7 @@ const SECTIONS_TOP = [
     {k:"presenceEyebrow", label:"Eyebrow", type:"text", sizeHint:"12px"},
     {k:"presenceTitle", label:"Heading", type:"text", sizeHint:"26–38px"},
     {k:"presenceSubtitle", label:"Subtitle", type:"textarea", sizeHint:"16px"},
-    {k:"presenceChips", label:"Cities — one per line", type:"textarea", sizeHint:"13.5px"},
+    {k:"presenceChips", label:"Cities — one per line  (https://… :: phrase to show)", type:"textarea", sizeHint:"13.5px"},
     {k:"presenceImage", label:"Image (shown below the cities)", type:"image"},
     {k:"presenceImageWidth", label:"Image width (px)", type:"text"},
     {k:"presenceImageHeight", label:"Image height (px)", type:"text"},
@@ -471,7 +471,7 @@ const SECTIONS_TOP = [
     {k:"structureParagraph", label:"Paragraph", type:"textarea", sizeHint:"15.5px"},
     {k:"structureAppendantTitle", label:"Appendant list title", type:"text", sizeHint:"15px"},
     {k:"structureAppendantSub", label:"Appendant list subtitle", type:"textarea", sizeHint:"15px"},
-    {k:"structureAppendantList", label:"Appendant bodies — one per line", type:"textarea", sizeHint:"13.5px"},
+    {k:"structureAppendantList", label:"Appendant bodies — one per line  (https://… :: phrase to show)", type:"textarea", sizeHint:"13.5px"},
     {k:"structurePlaqueBig", label:"Plaque big number", type:"text", sizeHint:"40px"},
     {k:"structurePlaqueLabel", label:"Plaque label", type:"text", sizeHint:"12.5px"},
     {k:"structurePlaqueDesc", label:"Plaque description", type:"textarea", sizeHint:"13px"},
@@ -1214,6 +1214,23 @@ function renderSiteHTML(s, editable, titleOverride, showPageBreaks){
     return a;
   }
 
+  // A line beginning with http:// or https:// renders as a link.
+  // An optional display phrase may follow "::" —
+  //     https://example.org                     -> shows the URL
+  //     https://example.org :: Lodge Buildings  -> shows "Lodge Buildings"
+  // Link lines are deliberately NOT click-to-editable in the preview: the visible
+  // text is written straight back to state on edit, which would discard the URL.
+  // Edit them in the field on the left instead.
+  function linkHtml(raw){
+    const val = String(raw).trim();
+    if(!/^https?:\/\//i.test(val)) return null;
+    const i = val.indexOf("::");
+    const href  = (i === -1 ? val : val.slice(0, i)).trim();
+    const label = (i === -1 ? ""  : val.slice(i + 2).trim());
+    if(!href) return null;
+    return `<a href="${esc(href)}" target="_blank" rel="noopener">${label ? richEsc(label) : esc(href)}</a>`;
+  }
+
   const nav = lines(s.navLinks.replace(/\|/g,"\n"));
   const navIds = ["summary","principles","origin","recognition","today","leadership","network","contact"];
   const navHtml = nav.map((label,i)=>`<a href="#${navIds[i]||('s'+i)}">${richEsc(label)}</a>`).join("\n");
@@ -1320,7 +1337,10 @@ function renderSiteHTML(s, editable, titleOverride, showPageBreaks){
   const todayTilesHtml = pairs(s.todayTiles,3).map(([v,l,sub],i)=>`
     <div class="tile reveal"><b${EA('todayTiles:'+i+':0')}>${richEsc(v)}</b><div class="lbl"${EA('todayTiles:'+i+':1')}>${richEsc(l)}</div><div class="sub"${EA('todayTiles:'+i+':2')}>${richEsc(sub)}</div></div>`).join("");
 
-  const chipsHtml = lines(s.presenceChips).map((c,i)=>`<span class="chip"${EA('presenceChips:'+i)}>${richEsc(c)}</span>`).join("");
+  const chipsHtml = lines(s.presenceChips).map((c,i)=>{
+    const link = linkHtml(c);
+    return `<span class="chip${link ? " chip-link" : ""}"${link ? "" : EA('presenceChips:'+i)}>${link || richEsc(c)}</span>`;
+  }).join("");
 
   const gmItems = pairs(s.leadershipItems);
   const half = Math.ceil(gmItems.length/2);
@@ -1340,16 +1360,10 @@ function renderSiteHTML(s, editable, titleOverride, showPageBreaks){
   const barsHtml = barItems.map((b,i)=>`
     <div class="bar-row"><div class="lbl"${EA('networkBars:'+i+':0')}>${richEsc(b.label)}</div><div class="bar-track"><div class="bar-fill" style="width:${Math.round(b.value/maxVal*100)}%"></div></div><div class="val"${EA('networkBars:'+i+':1')}>${richEsc(String(b.value))}</div></div>`).join("");
 
-  // A line that begins with http(s):// becomes a clickable link (blue + underlined).
-  // Uses esc() rather than richEsc() so * and ** inside a URL are not eaten as markup.
-  function appendantLineHtml(x){
-    const val = String(x).trim();
-    if(/^https?:\/\//i.test(val)){
-      return `<a href="${esc(val)}" target="_blank" rel="noopener">${esc(val)}</a>`;
-    }
-    return richEsc(x);
-  }
-  const appendantHtml = lines(s.structureAppendantList).map((x,i)=>`<li${EA('structureAppendantList:'+i)}>${appendantLineHtml(x)}</li>`).join("");
+  const appendantHtml = lines(s.structureAppendantList).map((x,i)=>{
+    const link = linkHtml(x);
+    return `<li${link ? "" : EA('structureAppendantList:'+i)}>${link || richEsc(x)}</li>`;
+  }).join("");
 
   const pillarsHtml = pairs(s.pillarsItems).map(([t,txt],i)=>`
     <div class="pillar reveal"><div class="num">${i+1}</div><h4${EA('pillarsItems:'+i+':0')}>${richEsc(t)}</h4><p${EA('pillarsItems:'+i+':1',{block:1})}>${richEsc(txt)}</p></div>`).join("");
@@ -1758,9 +1772,10 @@ function renderSiteHTML(s, editable, titleOverride, showPageBreaks){
   .appendant-list{list-style:none; margin:14px 0 0; padding:0;}
   .appendant-list li{font-size:13.5px; color:var(--ink); padding:8px 0 8px 18px; position:relative; border-bottom:1px dashed #DDD6BC;}
   .appendant-list li::before{content:"—"; position:absolute; left:0; color:var(--gold);}
-  .appendant-list li a{ color:#1155CC; text-decoration:underline; text-underline-offset:2px;
+  .appendant-list li a, .chip a{ color:#1155CC; text-decoration:underline; text-underline-offset:2px;
     overflow-wrap:anywhere; }
-  .appendant-list li a:hover{ color:#0B3D91; }
+  .appendant-list li a:hover, .chip a:hover{ color:#0B3D91; }
+  .chip-link{ border-color:#1155CC; }
   .structure-plaque{background:linear-gradient(160deg, #EAF4FC 0%, #FFFFFF 100%); color:#1a2340; padding:32px 28px; text-align:center; border:1px solid #D8EAF7;}
   .structure-plaque .big{font-family:var(--serif); font-size:40px; color:var(--navy);}
   .structure-plaque .lbl{font-size:12.5px; text-transform:uppercase; letter-spacing:.05em; margin-top:6px; color:#2a3a55;}
@@ -2268,6 +2283,21 @@ function nodeToMarkish(node){
 }
 function txt(el){ return el ? nodeToMarkish(el).replace(/\u00A0/g," ").trim() : ""; }
 
+// Like txt(), but rebuilds the "https://url" / "https://url :: Phrase" source form
+// from a rendered link, so Upload Version round-trips without losing the URL.
+function txtWithLink(el){
+  if(!el) return "";
+  const a = el.querySelector("a[href]");
+  if(a){
+    const href = (a.getAttribute("href") || "").trim();
+    if(/^https?:\/\//i.test(href)){
+      const label = txt(a);
+      return (label && label !== href) ? href + " :: " + label : href;
+    }
+  }
+  return txt(el);
+}
+
 function extractStateFromDoc(doc){
   const out = {};
   const sections = Array.from(doc.querySelectorAll("section"));
@@ -2385,7 +2415,7 @@ function extractStateFromDoc(doc){
     out.presenceEyebrow = txt(secPresence.querySelector(".eyebrow"));
     out.presenceTitle = txt(secPresence.querySelector("h2"));
     out.presenceSubtitle = txt(secPresence.querySelector(".section-head p"));
-    out.presenceChips = Array.from(secPresence.querySelectorAll(".chip")).map(txt).join("\n");
+    out.presenceChips = Array.from(secPresence.querySelectorAll(".chip")).map(txtWithLink).join("\n");
   }
 
   const secLeadership = doc.getElementById("leadership");
@@ -2425,7 +2455,7 @@ function extractStateFromDoc(doc){
       if(ps[0]) out.structureParagraph = txt(ps[0]);
       if(ps[1]) out.structureAppendantSub = txt(ps[1]);
       out.structureAppendantTitle = txt(leftDiv.querySelector("h3"));
-      out.structureAppendantList = Array.from(leftDiv.querySelectorAll(".appendant-list li")).map(txt).join("\n");
+      out.structureAppendantList = Array.from(leftDiv.querySelectorAll(".appendant-list li")).map(txtWithLink).join("\n");
     }
     const plaque = secStructure.querySelector(".structure-plaque");
     if(plaque){

@@ -47,3 +47,18 @@ for confirmation, then commits, pushes, and waits for the Pages build.
 
 Note: the builder's **Save** button stores versions in your browser (IndexedDB)
 only — they are not in this repo. **Download HTML** is the portable copy.
+
+## Linking a line in the builder
+
+In **Cities — one per line** and **Appendant bodies — one per line**, a line that
+starts with `http://` or `https://` renders as a blue underlined link. Add an
+optional display phrase after `::`:
+
+```
+Athens
+https://nglgreece.org/el/lodge-buildings/ :: View all Lodge Buildings
+https://example.org/report
+```
+
+Link lines are not click-to-editable in the preview — edit them in the field on
+the left, so the URL is never overwritten by the visible text.
