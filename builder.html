@@ -69,6 +69,11 @@
   .gh-warn label{ display:flex; gap:8px; align-items:flex-start; font-size:12.5px;
     color:#7a2332; line-height:1.5; cursor:pointer; }
   .gh-warn input{ margin-top:2px; flex:none; }
+  .gh-missing{ margin-top:9px; font-size:12.5px; color:var(--ink); }
+  .gh-missing[hidden]{ display:none; }
+  .gh-missing ul{ margin:5px 0 0; padding-left:18px; }
+  .gh-missing li{ margin:2px 0; color:#7a2332; }
+  .gh-added{ margin:7px 0 0; color:var(--muted); font-size:12px; }
   .status{font-size:11px; color:#B7BAD4; white-space:nowrap;}
   .toggle-wrap{ display:flex; align-items:center; gap:6px; font-size:11.5px; color:#D8DAEA; background:#1B2456; border:1px solid #33407A; border-radius:5px; padding:6px 10px; }
   .toggle-wrap input{ accent-color:var(--gold); }
@@ -203,6 +208,7 @@
     </p>
 
     <p class="gh-compare" id="ghCompare"></p>
+    <div class="gh-missing" id="ghMissingList" hidden></div>
     <div class="gh-warn" id="ghWarn" hidden>
       <label><input type="checkbox" id="ghAck">
         <span>Publish anyway — I understand this removes <b id="ghWarnN"></b> from the live page.</span></label>
@@ -2989,7 +2995,54 @@ async function ghRefreshTokenUI(){
   document.getElementById("ghTokenSaved").hidden = !saved;
 }
 
+function escHtmlText(t){
+  return String(t).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+}
 function ghCountImages(html){ return (html.match(/src="data:image\//g) || []).length; }
+
+// Names an embedded image by where it sits, so the publish dialog can say
+// which image is about to disappear rather than only how many.
+function ghSlotLabel(img){
+  const card = img.closest(".chrono-card");
+  if(card){
+    const h = card.querySelector("h4");
+    const t = h ? h.textContent.trim() : "";
+    const short = t.length > 32 ? t.slice(0, 32) + "\u2026" : t;
+    return "chronology card" + (short ? " \u201C" + short + "\u201D" : "");
+  }
+  if(img.closest(".today-image-frame"))      return "Today section image";
+  if(img.closest(".presence-image-frame"))   return "Cities section image";
+  if(img.closest(".gm-portrait-frame"))      return "Grand Master portrait";
+  if(img.closest(".lodges-support-imgwrap")) return "Lodges button image";
+  if(img.closest(".foot-crest"))             return "footer crest";
+  if(img.closest(".coexist-link-imgwrap"))   return "coexistence link image";
+  if(img.classList.contains("media-thumb"))  return "media thumbnail";
+  if(img.closest(".media-link-card"))        return "media card image";
+  if(img.closest(".crest"))                  return "nav crest";
+  const sec = img.closest("section");
+  const id = sec && sec.id ? sec.id : "";
+  return id ? ("image in the " + id + " section") : "page image";
+}
+
+function ghImageSlots(html){
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  const counts = {};
+  doc.querySelectorAll('img[src^="data:image/"]').forEach(img=>{
+    const k = ghSlotLabel(img);
+    counts[k] = (counts[k] || 0) + 1;
+  });
+  return counts;
+}
+
+// Slots the reference document has that this one does not (with multiplicity).
+function ghMissingSlots(mine, theirs){
+  const out = [];
+  Object.keys(theirs).forEach(k=>{
+    const gap = theirs[k] - (mine[k] || 0);
+    if(gap > 0) out.push(gap > 1 ? gap + " \u00D7 " + k : k);
+  });
+  return out;
+}
 
 // Compares the images in the version about to be published against the page
 // that is currently live, and makes the user acknowledge a reduction. The
@@ -3005,28 +3058,52 @@ async function ghCheckImages(){
   goBtn.disabled = false;
   compare.className = "gh-compare";
 
-  const mine = ghCountImages(renderSiteHTML(state, false, currentDocTitle()));
+  const myHtml = renderSiteHTML(state, false, currentDocTitle());
+  const mine = ghCountImages(myHtml);
   compare.innerHTML = "This version: <b>" + mine + "</b> images · checking the live page…";
 
-  let live = null;
+  let liveHtml = null;
   try{
     const res = await fetch(GH_PATH + "?_=" + Date.now(), { cache: "no-store" });
-    if(res.ok) live = ghCountImages(await res.text());
+    if(res.ok) liveHtml = await res.text();
   }catch(e){ /* offline or cross-origin — fall through */ }
 
-  if(live === null){
+  if(liveHtml === null){
     compare.innerHTML = "This version: <b>" + mine + "</b> images · could not read the live page to compare.";
     return;
   }
 
+  const live = ghCountImages(liveHtml);
   compare.innerHTML = "This version: <b>" + mine + "</b> images · live page: <b>" + live + "</b>";
-  if(mine < live){
-    const missing = live - mine;
+
+  const listEl  = document.getElementById("ghMissingList");
+  const mySlots = ghImageSlots(myHtml), liveSlots = ghImageSlots(liveHtml);
+  const gone    = ghMissingSlots(mySlots, liveSlots);   // on the live page, not here
+  const added   = ghMissingSlots(liveSlots, mySlots);   // here, not on the live page
+
+  // Warn on images actually being dropped, not on the net total: swapping one
+  // image for another nets to zero yet still loses something.
+  if(gone.length){
+    const n = gone.reduce((t, label)=>{
+      const m = /^(\d+) \u00D7 /.exec(label);
+      return t + (m ? parseInt(m[1], 10) : 1);
+    }, 0);
     compare.className = "gh-compare warnish";
-    document.getElementById("ghWarnN").textContent = missing + (missing === 1 ? " image" : " images");
+    document.getElementById("ghWarnN").textContent = n + (n === 1 ? " image" : " images");
+
+    let h = "<b>On the live page but not in this version:</b><ul><li>"
+          + gone.map(escHtmlText).join("</li><li>") + "</li></ul>";
+    if(added.length){
+      h += '<p class="gh-added"><b>New here:</b> ' + added.map(escHtmlText).join(", ") + "</p>";
+    }
+    listEl.innerHTML = h;
+    listEl.hidden = false;
+
     warn.hidden = false;
     goBtn.disabled = true;
     ack.onchange = () => { goBtn.disabled = !ack.checked; };
+  } else {
+    listEl.hidden = true;
   }
 }
 
