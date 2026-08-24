@@ -2868,6 +2868,8 @@ async function ghFetch(path, token, options){
   const opts = options || {};
   const res = await fetch("https://api.github.com/repos/" + GH_OWNER + "/" + GH_REPO + path, {
     method: opts.method || "GET",
+    cache: "no-store",          // GitHub sends Cache-Control: private, max-age=60.
+                                // A cached SHA lookup makes the next PUT fail with 409.
     headers: {
       "Accept": "application/vnd.github+json",
       "Authorization": "Bearer " + token,
@@ -2891,6 +2893,16 @@ function ghExplain(status, json){
   return "GitHub said: " + detail;
 }
 
+// Reads the file's current blob SHA. Returns undefined when the file does not
+// exist yet, or false when the lookup failed (status already reported).
+async function ghCurrentSha(token){
+  const bust = "&_=" + Date.now();
+  const res = await ghFetch("/contents/" + encodeURIComponent(GH_PATH) + "?ref=" + GH_BRANCH + bust, token);
+  if(res.status === 404) return undefined;
+  if(!res.ok){ ghSetStatus(ghExplain(res.status, res.json), "err"); return false; }
+  return res.json ? res.json.sha : undefined;
+}
+
 async function ghPublish(){
   const token = (document.getElementById("ghToken").value || "").trim() || await ghGetToken();
   if(!token){ ghSetStatus("Enter a token first.", "err"); return; }
@@ -2905,20 +2917,34 @@ async function ghPublish(){
     const content = utf8ToBase64(html);
 
     ghSetStatus("Checking the current file on GitHub…", "busy");
-    const head = await ghFetch("/contents/" + encodeURIComponent(GH_PATH) + "?ref=" + GH_BRANCH, token);
-    if(!head.ok && head.status !== 404){
-      ghSetStatus(ghExplain(head.status, head.json), "err"); goBtn.disabled = false; return;
-    }
-    const sha = head.ok && head.json ? head.json.sha : undefined;
+    let sha = await ghCurrentSha(token);
+    if(sha === false){ goBtn.disabled = false; return; }   // error already reported
 
     const kb = Math.round(html.length / 1024);
     ghSetStatus("Uploading " + kb + " KB…", "busy");
-    const put = await ghFetch("/contents/" + encodeURIComponent(GH_PATH), token, {
+    let put = await ghFetch("/contents/" + encodeURIComponent(GH_PATH), token, {
       method: "PUT",
       body: { message: message, content: content, branch: GH_BRANCH, sha: sha }
     });
+
+    // A 409 means the SHA we sent was stale — someone (or an earlier publish
+    // from this same page) moved the file on. Re-read it and try once more,
+    // rather than making the user reopen the dialog.
+    if(put.status === 409 || put.status === 422){
+      ghSetStatus("File moved on — re-reading and retrying…", "busy");
+      sha = await ghCurrentSha(token);
+      if(sha === false){ goBtn.disabled = false; return; }
+      put = await ghFetch("/contents/" + encodeURIComponent(GH_PATH), token, {
+        method: "PUT",
+        body: { message: message, content: content, branch: GH_BRANCH, sha: sha }
+      });
+    }
+
     if(!put.ok){
-      ghSetStatus(ghExplain(put.status, put.json), "err"); goBtn.disabled = false; return;
+      const msg = (put.status === 409)
+        ? "Still conflicting after a retry — something else is writing to this file. Wait a moment and publish again."
+        : ghExplain(put.status, put.json);
+      ghSetStatus(msg, "err"); goBtn.disabled = false; return;
     }
 
     // Only remember the token once it has actually worked.
