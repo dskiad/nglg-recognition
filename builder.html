@@ -2522,6 +2522,78 @@ function extractStateFromDoc(doc){
     out.contactCopyright = txt(secFooter.querySelector(".copy"));
   }
 
+  /* ---- Images and chronology entries -------------------------------------
+     These are embedded by the exporter but were never read back, so every
+     Download HTML -> Upload Version cycle silently dropped them. ---------- */
+  // Pixel values only. A frame with no explicit width renders as width:100%, and
+  // reading that back as "100" would pin a fluid image to a fixed 100px.
+  const pxv = (v) => {
+    const t = String(v || "").trim();
+    if(!/^\d+(\.\d+)?px$/.test(t)) return "";
+    const n = parseInt(t, 10);
+    return (isFinite(n) && n > 0) ? String(n) : "";
+  };
+  const pctv = (v) => {
+    const t = String(v || "").trim();
+    if(!/^\d+(\.\d+)?%$/.test(t)) return "";
+    const n = parseInt(t, 10);
+    return (isFinite(n) && n > 0) ? String(n) : "";
+  };
+
+  function grabFramed(frameSel, srcKey, wKey, hKey){
+    const frame = doc.querySelector(frameSel);
+    if(!frame) return;
+    const img = frame.querySelector("img");
+    const src = img && img.getAttribute("src");
+    if(!src) return;
+    out[srcKey] = src;
+    const w = pxv(frame.style.width), h = pxv(frame.style.height);
+    if(wKey && w) out[wKey] = w;
+    if(hKey && h) out[hKey] = h;
+  }
+
+  grabFramed(".today-image-frame",     "todayImage",       "todayImageWidth",       "todayImageHeight");
+  grabFramed(".presence-image-frame",  "presenceImage",    "presenceImageWidth",    "presenceImageHeight");
+  grabFramed(".gm-portrait-frame",     "leadershipPhoto",  "leadershipPhotoWidth",  "leadershipPhotoHeight");
+  grabFramed(".lodges-support-imgwrap","lodgesButtonImage","lodgesButtonImageWidth","lodgesButtonImageHeight");
+
+  const gmName = doc.querySelector(".gm-portrait-name");
+  const gmRole = doc.querySelector(".gm-portrait-role");
+  if(gmName) out.leadershipPhotoName = txt(gmName);
+  if(gmRole) out.leadershipPhotoRole = txt(gmRole);
+
+  // The footer crest falls back to the main logo when contactImage is unset,
+  // so only record it when it is genuinely a different image.
+  const footCrest = doc.querySelector(".foot-crest img");
+  if(footCrest){
+    const src = footCrest.getAttribute("src") || "";
+    if(src && src !== out.logo){
+      out.contactImage = src;
+      const w = pxv(footCrest.style.width), h = pxv(footCrest.style.height), r = pctv(footCrest.style.borderRadius);
+      if(w) out.contactImageWidth = w;
+      if(h) out.contactImageHeight = h;
+      if(r) out.contactImageRadius = r;
+    }
+  }
+
+  const chronoCards = Array.from(doc.querySelectorAll(".chrono-card"));
+  if(chronoCards.length){
+    out.chronologyItems = chronoCards.map(card=>{
+      const wrap = card.querySelector(".chrono-card-imgwrap");
+      const img  = card.querySelector("img.chrono-card-img");   // not the empty-placeholder div
+      const link = card.querySelector(".chrono-link") || card.querySelector(".chrono-card-link");
+      return {
+        date:        txt(card.querySelector(".chrono-date")),
+        title:       txt(card.querySelector("h4")),
+        description: txt(card.querySelector(".chrono-desc")),
+        url:         link ? (link.getAttribute("href") || "") : "",
+        image:       img ? (img.getAttribute("src") || "") : "",
+        imageWidth:  wrap ? pxv(wrap.style.width)  : "",
+        imageHeight: wrap ? pxv(wrap.style.height) : ""
+      };
+    });
+  }
+
   return out;
 }
 
