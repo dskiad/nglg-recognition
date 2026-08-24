@@ -3071,6 +3071,39 @@ function extractStateFromDoc(doc){
     }
   }
 
+  // Coexistence links: each item renders as an optional .coexist-link-row
+  // followed by an optional .coexist-link-desc, concatenated in order — so a
+  // description directly after a row belongs to that row, and one that is not
+  // preceded by a row is a description-only entry.
+  const cxRoot = doc.querySelector(".coexist-links");
+  if(cxRoot){
+    const cxItems = [];
+    let prevWasRow = false;
+    Array.from(cxRoot.children).forEach(el=>{
+      if(el.classList.contains("coexist-link-row")){
+        const a = el.querySelector("a.coexist-btn");
+        const img = el.querySelector("img.coexist-link-img");
+        cxItems.push({
+          label: a ? txt(a) : "",
+          url: a ? (a.getAttribute("href") || "") : "",
+          image: img ? (img.getAttribute("src") || "") : "",
+          imageWidth: img ? pxv(img.style.width) : "",
+          imageHeight: img ? pxv(img.style.height) : "",
+          description: ""
+        });
+        prevWasRow = true;
+      } else if(el.classList.contains("coexist-link-desc")){
+        if(prevWasRow && cxItems.length){
+          cxItems[cxItems.length - 1].description = txt(el);
+        } else {
+          cxItems.push({label:"", url:"", image:"", imageWidth:"", imageHeight:"", description: txt(el)});
+        }
+        prevWasRow = false;
+      }
+    });
+    if(cxItems.length) out.coexistLinks = cxItems;
+  }
+
   const chronoCards = Array.from(doc.querySelectorAll(".chrono-card"));
   if(chronoCards.length){
     out.chronologyItems = chronoCards.map(card=>{
