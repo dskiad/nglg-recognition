@@ -1208,7 +1208,10 @@ function renderSiteHTML(s, editable, titleOverride, showPageBreaks){
   function EA(path, opts){
     if(!editable) return "";
     opts = opts || {};
-    let a = ` class="ed" contenteditable="true" data-path="${esc(path)}"`;
+    // No class here on purpose: most call sites already carry their own class=""
+    // attribute, and a second one would be ignored by the parser. Editable styling
+    // hangs off the [contenteditable="true"] selector instead.
+    let a = ` contenteditable="true" data-path="${esc(path)}"`;
     if(opts.quiet) a += ` data-quiet="1"`;
     if(opts.block) a += ` data-block="1"`;
     return a;
