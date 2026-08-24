@@ -30,6 +30,8 @@ Then visit http://localhost:8000
 
 Export from the builder with **⬇ Download HTML**, then:
 
+Double-click **`publish.command`** in Finder, or from a terminal:
+
 ```bash
 cd ~/nglg-recognition && ./publish.sh
 ```
